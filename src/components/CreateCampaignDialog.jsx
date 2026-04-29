@@ -18,10 +18,8 @@ export default function CreateCampaignDialog({ onCreated, onCancel }) {
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     name: '',
-    setting: '',
     rulesSystem: '',
-    vaultPath: '',
-    statePagePath: 'Wiki/State/Current-Session',
+    githubRepo: '',
     statePageTemplate: DEFAULT_STATE_TEMPLATE,
     partyLineTemplate: DEFAULT_PARTY_LINE,
     campaignInstructions: '',
@@ -32,14 +30,14 @@ export default function CreateCampaignDialog({ onCreated, onCancel }) {
 
   const canAdvance = () => {
     if (step === 0) return form.name.trim() && form.rulesSystem.trim();
-    if (step === 1) return form.vaultPath.trim() && form.statePagePath.trim();
+    if (step === 1) return /^[^/]+\/[^/]+$/.test(form.githubRepo.trim());
     if (step === 2) return form.statePageTemplate.trim() && form.partyLineTemplate.trim();
     return true;
   };
 
   const handleSubmit = async () => {
     log.info(`Creating campaign "${form.name}" (rulesSystem="${form.rulesSystem}")`);
-    log.debug('Campaign form data:', { name: form.name, rulesSystem: form.rulesSystem, setting: form.setting, vaultPath: form.vaultPath });
+    log.debug('Campaign form data:', { name: form.name, rulesSystem: form.rulesSystem, githubRepo: form.githubRepo });
     setSaving(true);
     setError('');
     try {
@@ -48,10 +46,8 @@ export default function CreateCampaignDialog({ onCreated, onCancel }) {
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           name: form.name.trim(),
-          setting: form.setting.trim() || undefined,
           rulesSystem: form.rulesSystem.trim(),
-          vaultPath: form.vaultPath.trim(),
-          statePagePath: form.statePagePath.trim(),
+          githubRepo: form.githubRepo.trim(),
           statePageTemplate: form.statePageTemplate.trim(),
           partyLineTemplate: form.partyLineTemplate.trim(),
           campaignInstructions: form.campaignInstructions.trim() || undefined,
@@ -99,22 +95,15 @@ export default function CreateCampaignDialog({ onCreated, onCancel }) {
                 <input value={form.rulesSystem} onChange={e => set('rulesSystem', e.target.value)}
                   placeholder="AD&D 1st Edition" />
               </Field>
-              <Field label="Setting" hint="optional">
-                <input value={form.setting} onChange={e => set('setting', e.target.value)}
-                  placeholder="The Keep on the Borderlands" />
-              </Field>
+
             </>
           )}
 
           {step === 1 && (
             <>
-              <Field label="Obsidian Vault Path" required hint="Absolute path to your vault folder">
-                <input value={form.vaultPath} onChange={e => set('vaultPath', e.target.value)}
-                  placeholder="/Users/you/Documents/MyVault" />
-              </Field>
-              <Field label="State Page Path" required hint="Path within vault, no .md">
-                <input value={form.statePagePath} onChange={e => set('statePagePath', e.target.value)}
-                  placeholder="Wiki/State/Current-Session" />
+              <Field label="GitHub Repository" required hint="owner/repo — the wiki source repository">
+                <input value={form.githubRepo} onChange={e => set('githubRepo', e.target.value)}
+                  placeholder="my-org/my-campaign-wiki" />
               </Field>
             </>
           )}
