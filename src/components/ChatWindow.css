@@ -201,8 +201,9 @@
 
 .dice-roll-block {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
   padding: 5px 12px;
   border-left: 3px solid var(--accent-gold-dim);
   background: var(--accent-gold-glow);
@@ -215,7 +216,7 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
-  flex-shrink: 0;
+  word-break: break-word;
 }
 
 .dice-roll-result {
