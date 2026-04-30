@@ -28,6 +28,13 @@ const SYSTEM_ICONS = {
   "warhammer": '🔨',
 };
 
+export async function getRulesSystems() {
+  const res = await fetch(apiUrl('/rules-systems'), { headers: getAuthHeaders() });
+  if (!res.ok) throw new Error(`Server error ${res.status}`);
+  const data = await res.json();
+  return data.systems ?? [];
+}
+
 export function getCampaignStyle(campaign) {
   const sys = (campaign.rules_system || campaign.rulesSystem || '').toLowerCase();
   let icon = '🎲';
