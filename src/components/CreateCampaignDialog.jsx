@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { apiUrl, getAuthHeaders } from '../api.js';
+import React, { useState, useEffect } from 'react';
+import { apiUrl, getAuthHeaders, getRulesSystems } from '../api.js';
 import { createLogger } from '../logger.js';
 import './CreateCampaignDialog.css';
 
@@ -16,6 +16,13 @@ export default function CreateCampaignDialog({ onCreated, onCancel }) {
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [rulesSystems, setRulesSystems] = useState([]);
+
+  useEffect(() => {
+    getRulesSystems()
+      .then(data => setRulesSystems(Array.isArray(data) ? data : []))
+      .catch(() => setRulesSystems([]));
+  }, []);
   const [form, setForm] = useState({
     name: '',
     rulesSystem: '',
@@ -91,9 +98,13 @@ export default function CreateCampaignDialog({ onCreated, onCancel }) {
                 <input value={form.name} onChange={e => set('name', e.target.value)}
                   placeholder="The Caves of Chaos" autoFocus />
               </Field>
-              <Field label="Rules System" required hint="e.g. AD&D 1st Edition, Ironsworn">
-                <input value={form.rulesSystem} onChange={e => set('rulesSystem', e.target.value)}
-                  placeholder="AD&D 1st Edition" />
+              <Field label="Rules System" required>
+                <select value={form.rulesSystem} onChange={e => set('rulesSystem', e.target.value)}>
+                  <option value="">— Select a rules system —</option>
+                  {rulesSystems.map(s => (
+                    <option key={s.slug} value={s.slug}>{s.slug}</option>
+                  ))}
+                </select>
               </Field>
 
             </>
