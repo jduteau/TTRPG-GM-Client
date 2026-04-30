@@ -99,7 +99,16 @@ export default function CreateCampaignDialog({ onCreated, onCancel }) {
                   placeholder="The Caves of Chaos" autoFocus />
               </Field>
               <Field label="Rules System" required>
-                <select value={form.rulesSystem} onChange={e => set('rulesSystem', e.target.value)}>
+                <select value={form.rulesSystem} onChange={e => {
+                  const slug = e.target.value;
+                  const rs = rulesSystems.find(s => s.slug === slug);
+                  setForm(f => ({
+                    ...f,
+                    rulesSystem: slug,
+                    ...(rs?.defaults?.statePageTemplate ? { statePageTemplate: rs.defaults.statePageTemplate } : {}),
+                    ...(rs?.defaults?.partyLinesTemplate ? { partyLineTemplate: rs.defaults.partyLinesTemplate } : {}),
+                  }));
+                }}>
                   <option value="">— Select a rules system —</option>
                   {rulesSystems.map(s => (
                     <option key={s.slug} value={s.slug}>{s.slug}</option>
