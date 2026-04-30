@@ -8,6 +8,24 @@ const log = createLogger('ChatWindow');
 
 // ── Sub-components ──────────────────────────────────────────────────────────────
 
+/** Extract content string and roll list from a TurnSegment[] or legacy plain string. */
+function parseSegments(output) {
+  if (!Array.isArray(output)) {
+    return { content: output || '', rolls: [] };
+  }
+  const rolls = output.filter(s => s.type === 'roll');
+  const content = output.filter(s => s.type === 'text').map(s => s.content).join('\n\n');
+  return { content, rolls };
+}
+
+function rollBreakdown(r) {
+  const parts = [];
+  if (r.rolls?.length) parts.push(`[${r.rolls.join(', ')}]`);
+  if (r.modifier !== undefined && r.modifier !== 0)
+    parts.push(r.modifier > 0 ? `+${r.modifier}` : `${r.modifier}`);
+  return parts.length ? `${r.expression} \u2192 ${parts.join(' ')} = ` : `${r.expression} = `;
+}
+
 function DiceRollBlock({ rolls }) {
   if (!rolls || rolls.length === 0) return null;
   return (
@@ -16,7 +34,7 @@ function DiceRollBlock({ rolls }) {
         <div key={i} className="dice-roll-block">
           {r.reason && <span className="dice-roll-label">{r.reason}</span>}
           <span className="dice-roll-result">
-            {r.expression} = <strong>{r.total}</strong>
+            {rollBreakdown(r)}<strong>{r.total}</strong>
           </span>
         </div>
       ))}
@@ -29,7 +47,7 @@ function InlineDiceRoll({ roll }) {
     <div className="dice-roll-block inline">
       {roll.reason && <span className="dice-roll-label">{roll.reason}</span>}
       <span className="dice-roll-result">
-        {roll.expression} = <strong>{roll.total}</strong>
+        {rollBreakdown(roll)}<strong>{roll.total}</strong>
       </span>
     </div>
   );
@@ -115,13 +133,13 @@ function transcriptToMessages(turns) {
   const msgs = [];
   for (const turn of turns) {
     const playerInput = turn.player_input ?? turn.playerInput;
-    const gmOutput = turn.gm_output ?? turn.gmOutput;
-    const rolls = turn.rolls || [];
+    const rawOutput = turn.gm_output ?? turn.gmOutput;
     if (playerInput) {
       msgs.push({ id: `p-${turn.id}`, role: 'user', content: playerInput });
     }
-    if (gmOutput) {
-      msgs.push({ id: `g-${turn.id}`, role: 'gm', content: gmOutput, rolls });
+    if (rawOutput) {
+      const { content, rolls } = parseSegments(rawOutput);
+      msgs.push({ id: `g-${turn.id}`, role: 'gm', content, rolls });
     }
   }
   return msgs;
@@ -158,12 +176,8 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
     // If we just started the session and have an opening message
     if (session._opening) {
       log.info(`Session ${session.id} opened — using opening message`);
-      setMessages([{
-        id: 'opening',
-        role: 'gm',
-        content: session._opening,
-        rolls: session.rolls || [],
-      }]);
+      const { content, rolls } = parseSegments(session._opening);
+      setMessages([{ id: 'opening', role: 'gm', content, rolls }]);
       return;
     }
 
@@ -207,12 +221,13 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
         await consumeStream(res);
       } else {
         const data = await res.json();
-        log.info(`Turn complete (non-streaming): turnId=${data.turnId} rolls=${data.rolls?.length ?? 0}`);
+        const { content: nonStreamContent, rolls: nonStreamRolls } = parseSegments(data.output);
+        log.info(`Turn complete (non-streaming): turnId=${data.turnId} rolls=${nonStreamRolls.length}`);
         setMessages(m => [...m, {
           id: data.turnId,
           role: 'gm',
-          content: data.output,
-          rolls: data.rolls || [],
+          content: nonStreamContent,
+          rolls: nonStreamRolls,
         }]);
         setStreaming(false);
       }
@@ -228,29 +243,40 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
     const decoder = new TextDecoder();
     let textBuffer = '';
     let rollsBuffer = [];
+    let partial = '';
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const lines = decoder.decode(value).split('\n');
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
+      partial += decoder.decode(value, { stream: true });
+
+      // SSE blocks are separated by double newlines
+      const blocks = partial.split('\n\n');
+      partial = blocks.pop(); // last element may be incomplete
+
+      for (const block of blocks) {
+        if (!block.trim()) continue;
+        let eventType = '';
+        let dataStr = '';
+        for (const line of block.split('\n')) {
+          if (line.startsWith('event: ')) eventType = line.slice(7).trim();
+          else if (line.startsWith('data: ')) dataStr = line.slice(6).trim();
+        }
+        if (!dataStr) continue;
         try {
-          const data = JSON.parse(line.slice(6));
+          const data = JSON.parse(dataStr);
 
-          if (data.type === 'token') {
-            textBuffer += data.content;
-            setStreamBuffer(textBuffer);
-          }
-
-          if (data.type === 'roll') {
-            const roll = { expression: data.expression, total: data.total, reason: data.reason };
-            log.debug(`Roll: ${roll.expression} = ${roll.total}${roll.reason ? ` (${roll.reason})` : ''}`);
-            rollsBuffer = [...rollsBuffer, roll];
-            setLiveRolls(rollsBuffer);
-          }
-
-          if (data.type === 'done') {
+          if (eventType === 'segment') {
+            if (data.type === 'text') {
+              textBuffer += data.content;
+              setStreamBuffer(textBuffer);
+            } else if (data.type === 'roll') {
+              const roll = { expression: data.expression, rolls: data.rolls, modifier: data.modifier, total: data.total, reason: data.reason };
+              log.debug(`Roll: ${roll.expression} = ${roll.total}${roll.reason ? ` (${roll.reason})` : ''}`);
+              rollsBuffer = [...rollsBuffer, roll];
+              setLiveRolls(rollsBuffer);
+            }
+          } else if (eventType === 'done') {
             log.info(`Stream complete: turnId=${data.turnId} rolls=${rollsBuffer.length} chars=${textBuffer.length}`);
             setMessages(m => [...m, {
               id: data.turnId || Date.now(),
@@ -261,11 +287,9 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
             setStreamBuffer('');
             setLiveRolls([]);
             setStreaming(false);
-          }
-
-          if (data.type === 'error') {
-            log.error('Stream error from server:', data.message);
-            setMessages(m => [...m, { id: Date.now(), role: 'gm', content: `[Error: ${data.message}]`, rolls: [] }]);
+          } else if (eventType === 'error') {
+            log.error('Stream error from server:', data.error);
+            setMessages(m => [...m, { id: Date.now(), role: 'gm', content: `[Error: ${data.error}]`, rolls: [] }]);
             setStreaming(false);
           }
         } catch {}
