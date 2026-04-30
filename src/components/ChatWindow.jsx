@@ -53,6 +53,35 @@ function InlineDiceRoll({ roll }) {
   );
 }
 
+/** Renders committed segments (rolls + final text) interleaved, then the live typing buffer below. */
+function LiveStreamArea({ segments, streamBuffer }) {
+  const hasContent = segments.length > 0 || streamBuffer;
+  return (
+    <div className="message message-assistant streaming">
+      <div className="message-label">GM</div>
+      <div className="message-content">
+        {hasContent ? (
+          <>
+            {segments.map((seg, i) =>
+              seg.type === 'roll'
+                ? <InlineDiceRoll key={i} roll={seg} />
+                : <ReactMarkdown key={i}>{seg.content}</ReactMarkdown>
+            )}
+            {streamBuffer && (
+              <>
+                <ReactMarkdown>{streamBuffer}</ReactMarkdown>
+                <span className="cursor" />
+              </>
+            )}
+          </>
+        ) : (
+          <div className="thinking"><span /><span /><span /></div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RecapModal({ sessionId, onClose }) {
   const [recap, setRecap] = useState('');
   const [loading, setLoading] = useState(true);
@@ -152,13 +181,33 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [streamBuffer, setStreamBuffer] = useState('');
-  const [liveRolls, setLiveRolls] = useState([]);
+  const [liveSegments, setLiveSegments] = useState([]);
   const [ending, setEnding] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [showRecap, setShowRecap] = useState(false);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+  const charQueueRef = useRef([]);
+  const typingIntervalRef = useRef(null);
+
+  const stopTyping = () => {
+    if (typingIntervalRef.current) {
+      clearInterval(typingIntervalRef.current);
+      typingIntervalRef.current = null;
+    }
+    charQueueRef.current = [];
+  };
+
+  const startTyping = () => {
+    if (typingIntervalRef.current) return;
+    typingIntervalRef.current = setInterval(() => {
+      const queue = charQueueRef.current;
+      if (queue.length === 0) return;
+      const chars = queue.splice(0, 3).join('');
+      setStreamBuffer(b => b + chars);
+    }, 30);
+  };
 
   // Load transcript (or opening message) when session changes
   useEffect(() => {
@@ -166,7 +215,8 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
     setInput('');
     setStreaming(false);
     setStreamBuffer('');
-    setLiveRolls([]);
+    setLiveSegments([]);
+    stopTyping();
     setEnding(false);
     setShowEndConfirm(false);
 
@@ -195,7 +245,7 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamBuffer, liveRolls]);
+  }, [messages, streamBuffer, liveSegments]);
 
   const sendTurn = async (text) => {
     log.info(`Sending turn for session ${session.id}: "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`);
@@ -203,7 +253,8 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
     setMessages(m => [...m, userMsg]);
     setStreaming(true);
     setStreamBuffer('');
-    setLiveRolls([]);
+    setLiveSegments([]);
+    startTyping();
 
     try {
       const res = await fetch(apiUrl(`/sessions/${session.id}/turns`), {
@@ -240,9 +291,8 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
 
   const consumeStream = async (res) => {
     const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let textBuffer = '';
-    let rollsBuffer = [];
+    const decoder = new TextDecoder('utf-8');
+    let segmentsBuffer = []; // committed segments: rolls + final text
     let partial = '';
 
     while (true) {
@@ -259,37 +309,49 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
         let eventType = '';
         let dataStr = '';
         for (const line of block.split('\n')) {
-          if (line.startsWith('event: ')) eventType = line.slice(7).trim();
-          else if (line.startsWith('data: ')) dataStr = line.slice(6).trim();
+          if (line.startsWith('event:')) eventType = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataStr = line.slice(5).trim();
         }
         if (!dataStr) continue;
         try {
           const data = JSON.parse(dataStr);
 
           if (eventType === 'segment') {
-            if (data.type === 'text') {
-              textBuffer += data.content;
-              setStreamBuffer(textBuffer);
+            if (data.type === 'text_delta') {
+              // Push incoming chars onto the queue; interval drains them smoothly
+              charQueueRef.current.push(...data.content.split(''));
+            } else if (data.type === 'text') {
+              // Final sanitised narrative — drain queue, replace buffer, commit
+              stopTyping();
+              segmentsBuffer = [...segmentsBuffer, { type: 'text', content: data.content }];
+              setStreamBuffer('');
+              setLiveSegments([...segmentsBuffer]);
             } else if (data.type === 'roll') {
-              const roll = { expression: data.expression, rolls: data.rolls, modifier: data.modifier, total: data.total, reason: data.reason };
+              const roll = { type: 'roll', expression: data.expression, rolls: data.rolls, modifier: data.modifier, total: data.total, reason: data.reason };
               log.debug(`Roll: ${roll.expression} = ${roll.total}${roll.reason ? ` (${roll.reason})` : ''}`);
-              rollsBuffer = [...rollsBuffer, roll];
-              setLiveRolls(rollsBuffer);
+              segmentsBuffer = [...segmentsBuffer, roll];
+              setLiveSegments([...segmentsBuffer]);
             }
           } else if (eventType === 'done') {
-            log.info(`Stream complete: turnId=${data.turnId} rolls=${rollsBuffer.length} chars=${textBuffer.length}`);
+            const rolls = segmentsBuffer.filter(s => s.type === 'roll');
+            const content = segmentsBuffer.filter(s => s.type === 'text').map(s => s.content).join('\n\n');
+            log.info(`Stream complete: turnId=${data.turnId} rolls=${rolls.length} chars=${content.length}`);
+            stopTyping();
             setMessages(m => [...m, {
               id: data.turnId || Date.now(),
               role: 'gm',
-              content: textBuffer,
-              rolls: rollsBuffer,
+              content,
+              rolls,
             }]);
             setStreamBuffer('');
-            setLiveRolls([]);
+            setLiveSegments([]);
             setStreaming(false);
           } else if (eventType === 'error') {
             log.error('Stream error from server:', data.error);
+            stopTyping();
             setMessages(m => [...m, { id: Date.now(), role: 'gm', content: `[Error: ${data.error}]`, rolls: [] }]);
+            setStreamBuffer('');
+            setLiveSegments([]);
             setStreaming(false);
           }
         } catch {}
@@ -390,29 +452,8 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
 
         {messages.map((msg, i) => <Message key={msg.id ?? i} msg={msg} />)}
 
-        {/* Live streaming roll blocks */}
-        {streaming && liveRolls.length > 0 && (
-          <div className="dice-roll-area live" style={{ padding: '0 32px', maxWidth: '880px', width: '100%', margin: '0 auto' }}>
-            {liveRolls.map((r, i) => <InlineDiceRoll key={i} roll={r} />)}
-          </div>
-        )}
-
-        {/* Streaming GM text */}
-        {streaming && streamBuffer && (
-          <div className="message message-assistant streaming">
-            <div className="message-label">GM</div>
-            <div className="message-content">
-              <ReactMarkdown>{streamBuffer}</ReactMarkdown>
-              <span className="cursor" />
-            </div>
-          </div>
-        )}
-        {streaming && !streamBuffer && (
-          <div className="message message-assistant">
-            <div className="message-label">GM</div>
-            <div className="message-content thinking"><span /><span /><span /></div>
-          </div>
-        )}
+        {/* Live streaming area: committed segments + typing buffer */}
+        {streaming && <LiveStreamArea segments={liveSegments} streamBuffer={streamBuffer} />}
 
         {ending && (
           <div className="message message-assistant">
