@@ -106,7 +106,7 @@ export default function CreateCampaignDialog({ onCreated, onCancel }) {
                     ...f,
                     rulesSystem: slug,
                     ...(rs?.defaults?.statePageTemplate ? { statePageTemplate: rs.defaults.statePageTemplate } : {}),
-                    ...(rs?.defaults?.partyLinesTemplate ? { partyLineTemplate: rs.defaults.partyLinesTemplate } : {}),
+                    ...(rs?.defaults?.partyLineTemplate ? { partyLineTemplate: rs.defaults.partyLineTemplate } : {}),
                   }));
                 }}>
                   <option value="">— Select a rules system —</option>
