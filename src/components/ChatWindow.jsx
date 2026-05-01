@@ -190,6 +190,8 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
   const textareaRef = useRef(null);
   const charQueueRef = useRef([]);
   const typingIntervalRef = useRef(null);
+  const streamBufferRef = useRef('');
+  const pendingCommitRef = useRef(null);
 
   const stopTyping = () => {
     if (typingIntervalRef.current) {
@@ -197,14 +199,34 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
       typingIntervalRef.current = null;
     }
     charQueueRef.current = [];
+    pendingCommitRef.current = null;
   };
 
   const startTyping = () => {
     if (typingIntervalRef.current) return;
     typingIntervalRef.current = setInterval(() => {
       const queue = charQueueRef.current;
-      if (queue.length === 0) return;
+      if (queue.length === 0) {
+        if (pendingCommitRef.current) {
+          const pending = pendingCommitRef.current;
+          pendingCommitRef.current = null;
+          clearInterval(typingIntervalRef.current);
+          typingIntervalRef.current = null;
+          setMessages(m => [...m, {
+            id: pending.turnId || Date.now(),
+            role: 'gm',
+            content: pending.content,
+            rolls: pending.rolls,
+          }]);
+          setStreamBuffer('');
+          streamBufferRef.current = '';
+          setLiveSegments([]);
+          setStreaming(false);
+        }
+        return;
+      }
       const chars = queue.splice(0, 3).join('');
+      streamBufferRef.current += chars;
       setStreamBuffer(b => b + chars);
     }, 30);
   };
@@ -215,6 +237,7 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
     setInput('');
     setStreaming(false);
     setStreamBuffer('');
+    streamBufferRef.current = '';
     setLiveSegments([]);
     stopTyping();
     setEnding(false);
@@ -253,6 +276,7 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
     setMessages(m => [...m, userMsg]);
     setStreaming(true);
     setStreamBuffer('');
+    streamBufferRef.current = '';
     setLiveSegments([]);
     startTyping();
 
@@ -321,10 +345,10 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
               // Push incoming chars onto the queue; interval drains them smoothly
               charQueueRef.current.push(...data.content.split(''));
             } else if (data.type === 'text') {
-              // Final sanitised narrative — drain queue, replace buffer, commit
-              stopTyping();
+              // Final sanitised narrative — type remaining chars then commit
+              const remaining = data.content.slice(streamBufferRef.current.length);
+              charQueueRef.current = remaining.split('');
               segmentsBuffer = [...segmentsBuffer, { type: 'text', content: data.content }];
-              setStreamBuffer('');
               setLiveSegments([...segmentsBuffer]);
             } else if (data.type === 'roll') {
               const roll = { type: 'roll', expression: data.expression, rolls: data.rolls, modifier: data.modifier, total: data.total, reason: data.reason };
@@ -336,21 +360,14 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
             const rolls = segmentsBuffer.filter(s => s.type === 'roll');
             const content = segmentsBuffer.filter(s => s.type === 'text').map(s => s.content).join('\n\n');
             log.info(`Stream complete: turnId=${data.turnId} rolls=${rolls.length} chars=${content.length}`);
-            stopTyping();
-            setMessages(m => [...m, {
-              id: data.turnId || Date.now(),
-              role: 'gm',
-              content,
-              rolls,
-            }]);
-            setStreamBuffer('');
-            setLiveSegments([]);
-            setStreaming(false);
+            // Queue drains naturally; interval will commit when empty
+            pendingCommitRef.current = { turnId: data.turnId, content, rolls };
           } else if (eventType === 'error') {
             log.error('Stream error from server:', data.error);
             stopTyping();
             setMessages(m => [...m, { id: Date.now(), role: 'gm', content: `[Error: ${data.error}]`, rolls: [] }]);
             setStreamBuffer('');
+            streamBufferRef.current = '';
             setLiveSegments([]);
             setStreaming(false);
           }
