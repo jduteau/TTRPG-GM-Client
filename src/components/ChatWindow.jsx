@@ -82,7 +82,7 @@ function LiveStreamArea({ segments, streamBuffer }) {
   );
 }
 
-function RecapModal({ sessionId, onClose }) {
+function RecapModal({ sessionId, sessionNum, onClose }) {
   const [recap, setRecap] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -93,12 +93,27 @@ function RecapModal({ sessionId, onClose }) {
       .catch(() => { setRecap('Failed to load recap.'); setLoading(false); });
   }, [sessionId]);
 
+  const handleDownload = () => {
+    const blob = new Blob([recap], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `session-${sessionNum ?? sessionId}-recap.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="recap-overlay" onClick={onClose}>
       <div className="recap-dialog" onClick={e => e.stopPropagation()}>
         <div className="recap-header">
           <span className="recap-title">Session Recap</span>
-          <button className="recap-close" onClick={onClose}>✕</button>
+          <div className="recap-header-actions">
+            {!loading && (
+              <button className="recap-download" onClick={handleDownload} title="Download as Markdown">↓ .md</button>
+            )}
+            <button className="recap-close" onClick={onClose}>✕</button>
+          </div>
         </div>
         <div className="recap-body">
           {loading ? (
@@ -515,7 +530,7 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
       )}
 
       {showRecap && (
-        <RecapModal sessionId={session.id} onClose={() => setShowRecap(false)} />
+        <RecapModal sessionId={session.id} sessionNum={sessionNum} onClose={() => setShowRecap(false)} />
       )}
     </div>
   );
