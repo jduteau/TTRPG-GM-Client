@@ -135,9 +135,8 @@ export default function CreateCampaignDialog({ onCreated, onCancel }) {
                   onChange={e => set('statePageTemplate', e.target.value)} />
               </Field>
               <Field label="Party Line Template" required hint="Use {wikiPath} and any PC frontmatter field like {hp_current}, {level}">
-                <input value={form.partyLineTemplate}
-                  onChange={e => set('partyLineTemplate', e.target.value)}
-                  placeholder="- [[{wikiPath}]] — {hp_current}/{hp_max} HP" />
+                <textarea rows={4} value={form.partyLineTemplate}
+                  onChange={e => set('partyLineTemplate', e.target.value)} />
               </Field>
             </>
           )}

@@ -19,6 +19,7 @@ export default function App() {
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hasActiveSession, setHasActiveSession] = useState(false);
+  const [sessionStarting, setSessionStarting] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('auth-token');
@@ -62,29 +63,74 @@ export default function App() {
     log.info(`Starting new session for campaign ${activeCampaign.id}`);
     log.debug('Session instructions:', sessionInstructions ?? '(none)');
     setShowNewDialog(false);
-    const res = await fetch(apiUrl('/sessions'), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders(),
-      },
-      body: JSON.stringify({
-        campaignId: activeCampaign.id,
-        sessionInstructions: sessionInstructions || undefined,
-      }),
-    });
-    const data = await res.json();
-    log.info(`Session started: id=${data.sessionId} number=${data.sessionNumber}`);
-    log.debug('Session start output:', data.output?.slice(0, 120));
-    setActiveSession({
-      id: data.sessionId,
-      campaignId: activeCampaign.id,
-      sessionNumber: data.sessionNumber,
-      status: 'active',
-      startedAt: new Date().toISOString(),
-      _opening: data.output,
-    });
-    setSidebarOpen(false);
+    setSessionStarting(true);
+    try {
+      const res = await fetch(apiUrl('/sessions'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          campaignId: activeCampaign.id,
+          sessionInstructions: sessionInstructions || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Server error ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      const segments = [];
+      let partial = '';
+      let finished = false;
+
+      while (!finished) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        partial += decoder.decode(value, { stream: true });
+        const blocks = partial.split('\n\n');
+        partial = blocks.pop();
+
+        for (const block of blocks) {
+          if (!block.trim()) continue;
+          let eventType = '';
+          let dataStr = '';
+          for (const line of block.split('\n')) {
+            if (line.startsWith('event:')) eventType = line.slice(6).trim();
+            else if (line.startsWith('data:')) dataStr = line.slice(5).trim();
+          }
+          if (!dataStr) continue;
+          const data = JSON.parse(dataStr);
+          if (eventType === 'segment') {
+            if (data.type === 'roll' || data.type === 'text') segments.push(data);
+          } else if (eventType === 'done') {
+            log.info(`Session started: id=${data.sessionId} number=${data.sessionNumber}`);
+            setActiveSession({
+              id: data.sessionId,
+              campaignId: activeCampaign.id,
+              sessionNumber: data.sessionNumber,
+              status: 'active',
+              startedAt: new Date().toISOString(),
+              _opening: segments,
+            });
+            setSidebarOpen(false);
+            finished = true;
+            break;
+          } else if (eventType === 'error') {
+            throw new Error(data.error || 'Failed to start session');
+          }
+        }
+      }
+    } catch (err) {
+      log.error('Failed to start session:', err.message);
+    } finally {
+      setSessionStarting(false);
+    }
   };
 
   const handleChangeCampaign = () => {
@@ -172,10 +218,10 @@ export default function App() {
               <button
                 className="btn-primary"
                 onClick={handleNewSession}
-                disabled={hasActiveSession}
+                disabled={hasActiveSession || sessionStarting}
                 title={hasActiveSession ? 'End the current session before starting a new one' : undefined}
               >
-                Begin New Session
+                {sessionStarting ? 'Starting session…' : 'Begin New Session'}
               </button>
             </div>
           </div>
