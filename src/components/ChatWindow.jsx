@@ -413,7 +413,9 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
             setLiveSegments([]);
             setStreaming(false);
           }
-        } catch {}
+        } catch (e) {
+          if (e instanceof NoActiveSessionError) throw e;
+        }
       }
     }
   };
