@@ -6,6 +6,8 @@ import './ChatWindow.css';
 
 const log = createLogger('ChatWindow');
 
+class NoActiveSessionError extends Error {}
+
 // ── Sub-components ──────────────────────────────────────────────────────────────
 
 /** Extract content string and roll list from a TurnSegment[] or legacy plain string. */
@@ -285,10 +287,12 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamBuffer, liveSegments]);
 
-  const sendTurn = async (text) => {
+  const sendTurn = async (text, retried = false) => {
     log.info(`Sending turn for session ${session.id}: "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`);
-    const userMsg = { id: Date.now(), role: 'user', content: text };
-    setMessages(m => [...m, userMsg]);
+    if (!retried) {
+      const userMsg = { id: Date.now(), role: 'user', content: text };
+      setMessages(m => [...m, userMsg]);
+    }
     setStreaming(true);
     setStreamBuffer('');
     streamBufferRef.current = '';
@@ -311,6 +315,11 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
         await consumeStream(res);
       } else {
         const data = await res.json();
+        if (!res.ok) {
+          const errMsg = data.error || `Server error ${res.status}`;
+          if (/No active session/i.test(errMsg)) throw new NoActiveSessionError(errMsg);
+          throw new Error(errMsg);
+        }
         const { content: nonStreamContent, rolls: nonStreamRolls } = parseSegments(data.output);
         log.info(`Turn complete (non-streaming): turnId=${data.turnId} rolls=${nonStreamRolls.length}`);
         setMessages(m => [...m, {
@@ -322,6 +331,21 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
         setStreaming(false);
       }
     } catch (err) {
+      if (!retried && err instanceof NoActiveSessionError) {
+        log.info(`Session ${session.id} not in server memory; resuming…`);
+        stopTyping();
+        setStreamBuffer('');
+        streamBufferRef.current = '';
+        setLiveSegments([]);
+        try {
+          await fetch(apiUrl(`/sessions/${session.id}/resume`), { method: 'POST', headers: getAuthHeaders() });
+          log.info(`Session ${session.id} resumed; retrying turn…`);
+          return sendTurn(text, true);
+        } catch (resumeErr) {
+          log.error('Session resume failed:', resumeErr.message);
+        }
+      }
+      stopTyping();
       log.error('sendTurn failed:', err.message);
       setMessages(m => [...m, { id: Date.now(), role: 'gm', content: `[Error: ${err.message}]`, rolls: [] }]);
       setStreaming(false);
@@ -379,6 +403,9 @@ export default function ChatWindow({ session, campaign, onOpenSidebar }) {
             pendingCommitRef.current = { turnId: data.turnId, content, rolls };
           } else if (eventType === 'error') {
             log.error('Stream error from server:', data.error);
+            if (/No active session/i.test(data.error)) {
+              throw new NoActiveSessionError(data.error);
+            }
             stopTyping();
             setMessages(m => [...m, { id: Date.now(), role: 'gm', content: `[Error: ${data.error}]`, rolls: [] }]);
             setStreamBuffer('');
