@@ -41,7 +41,7 @@ export default function SettingsDialog({ hasActiveSession, onClose }) {
     try {
       const result = await updateSettings(payload);
       log.info('Settings saved:', result.updated);
-      setSavedNote(result.note ?? 'Settings saved.');
+      setSavedNote('Settings saved. New sessions will use the updated models.');
     } catch (err) {
       log.error('Failed to save settings:', err.message);
       setError('Failed to save settings.');
