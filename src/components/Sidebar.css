@@ -220,6 +220,30 @@
   opacity: 0.75;
 }
 
+.sidebar-footer {
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border-dim);
+}
+
+.btn-settings {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  transition: all var(--transition);
+}
+
+.btn-settings:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-dim);
+  background: var(--bg-hover);
+}
+
 @media (max-width: 900px) {
   .sidebar {
     position: fixed;

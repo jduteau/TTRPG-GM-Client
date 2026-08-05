@@ -4,6 +4,7 @@ import CampaignSelector from './components/CampaignSelector.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import ChatWindow from './components/ChatWindow.jsx';
 import NewSessionDialog from './components/NewSessionDialog.jsx';
+import SettingsDialog from './components/SettingsDialog.jsx';
 import { apiUrl, getAuthHeaders, getCampaignStyle } from './api.js';
 import { createLogger } from './logger.js';
 import './App.css';
@@ -17,6 +18,7 @@ export default function App() {
   const [activeSession, setActiveSession] = useState(null);
   const [showSelector, setShowSelector] = useState(true);
   const [showNewDialog, setShowNewDialog] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hasActiveSession, setHasActiveSession] = useState(false);
   const [sessionStarting, setSessionStarting] = useState(false);
@@ -188,6 +190,7 @@ export default function App() {
         onNewSession={handleNewSession}
         onChangeCampaign={handleChangeCampaign}
         onHasActiveChange={setHasActiveSession}
+        onSettings={() => { setSidebarOpen(false); setShowSettings(true); }}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
@@ -233,6 +236,13 @@ export default function App() {
           campaign={activeCampaign}
           onConfirm={handleDialogConfirm}
           onCancel={() => setShowNewDialog(false)}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsDialog
+          hasActiveSession={!!activeSession}
+          onClose={() => setShowSettings(false)}
         />
       )}
     </div>

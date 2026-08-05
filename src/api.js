@@ -28,6 +28,22 @@ const SYSTEM_ICONS = {
   "warhammer": '🔨',
 };
 
+export async function getSettingsModels() {
+  const res = await fetch(apiUrl('/settings/models'), { headers: getAuthHeaders() });
+  if (!res.ok) throw new Error(`Server error ${res.status}`);
+  return res.json(); // { currentProvider, currentGmModel, currentRulesModel, providers: { [provider]: { models: [{id, description}], source } } }
+}
+
+export async function updateSettings(settings) {
+  const res = await fetch(apiUrl('/settings'), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error(`Server error ${res.status}`);
+  return res.json(); // { updated, note }
+}
+
 export async function getRulesSystems() {
   const res = await fetch(apiUrl('/rules-systems'), { headers: getAuthHeaders() });
   if (!res.ok) throw new Error(`Server error ${res.status}`);

@@ -20,6 +20,7 @@ export default function Sidebar({
   onNewSession,
   onChangeCampaign,
   onHasActiveChange,
+  onSettings,
   isOpen,
   onClose,
 }) {
@@ -112,6 +113,12 @@ export default function Sidebar({
             )}
           </div>
         ))}
+      </div>
+
+      <div className="sidebar-footer">
+        <button className="btn-settings" onClick={onSettings} title="Settings">
+          ⚙️ Settings
+        </button>
       </div>
     </aside>
   );
