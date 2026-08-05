@@ -67,3 +67,10 @@
   font-size: 0.88rem;
   padding: 8px 0;
 }
+
+.settings-legend {
+  font-size: 0.75rem;
+  font-style: italic;
+  color: var(--text-dim);
+  margin-top: -4px;
+}

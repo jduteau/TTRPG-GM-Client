@@ -87,6 +87,7 @@ export default function SettingsDialog({ hasActiveSession, onClose }) {
                   value={gmModel}
                   onChange={setGmModel}
                   providers={providers}
+                  role="gm"
                 />
               </div>
 
@@ -96,8 +97,11 @@ export default function SettingsDialog({ hasActiveSession, onClose }) {
                   value={rulesModel}
                   onChange={setRulesModel}
                   providers={providers}
+                  role="rules"
                 />
               </div>
+
+              <p className="settings-legend">★ recommended for role ◆ suitable for either hover for description</p>
             </>
           )}
         </div>
@@ -115,8 +119,22 @@ export default function SettingsDialog({ hasActiveSession, onClose }) {
   );
 }
 
-function ModelSelect({ value, onChange, providers }) {
+function ModelSelect({ value, onChange, providers, role }) {
   const entries = Object.entries(providers ?? {});
+
+  function sortedModels(models) {
+    return [...models].sort((a, b) => {
+      const aMatch = a.suggestedFor === role || a.suggestedFor === 'either';
+      const bMatch = b.suggestedFor === role || b.suggestedFor === 'either';
+      return bMatch - aMatch;
+    });
+  }
+
+  function modelLabel(m) {
+    const tag = m.suggestedFor === role ? '★ ' : m.suggestedFor === 'either' ? '◆ ' : '';
+    return `${tag}${m.id}`;
+  }
+
   return (
     <select
       className="settings-select"
@@ -126,9 +144,9 @@ function ModelSelect({ value, onChange, providers }) {
       <option value="">— select a model —</option>
       {entries.map(([provider, { models }]) => (
         <optgroup key={provider} label={provider}>
-          {models.map(m => (
+          {sortedModels(models).map(m => (
             <option key={m.id} value={m.id} title={m.description}>
-              {m.id}
+              {modelLabel(m)}
             </option>
           ))}
         </optgroup>
